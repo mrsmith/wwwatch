@@ -1,0 +1,28 @@
+<html>
+    <head>
+        <style> * { font-family: monospace; } </style>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <title>Refresh like mad</title>
+        <script src="http://code.jquery.com/jquery-1.9.1.min.js"></script>
+        <script>
+            $(document).ready(function() {
+                setInterval(update, 1000);
+                update();
+            });
+
+            function update() {
+                $.ajax({
+                    url: "./cgi-bin/update.cgi",
+                }).done(function(data) {
+                    var out = $('#out');
+                    out.html($('<pre>').text(data));
+                });
+            }
+        </script>
+    </head>
+    <body>
+        <div id="out"/>
+    </body>
+</html>
+
+
