@@ -1,0 +1,79 @@
+#!/bin/bash
+
+set -o errexit
+
+INTERVAL=1000
+port=8080
+
+cmd="$@"
+
+generate_index_htm() {
+    local interval="$1"
+cat <<EOF
+<html>
+    <head>
+        <style> * { font-family: monospace; } </style>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+        <title>Refresh like mad</title>
+        <script src="http://code.jquery.com/jquery-1.9.1.min.js"></script>
+        <script>
+            \$(document).ready(function() {
+                setInterval(update, $interval);
+                update();
+            });
+
+            function update() {
+                \$.ajax({
+                    url: "./cgi-bin/update.cgi",
+                }).done(function(data) {
+                    var out = \$('#out');
+                    out.html(\$('<pre>').text(data));
+                }).error(function(a,b,c) {
+                    var out = \$('#out');
+                    out.text("error getting update: " + b + ", " + c);
+                });
+            }
+        </script>
+    </head>
+    <body>
+        <div id="out"/>
+    </body>
+</html>
+EOF
+}
+
+generate_update_cgi() {
+    local workdir="$1"; shift
+    local cmd="$@"
+cat <<EOF
+#!/bin/bash
+
+echo "Content-type: text/plain"
+echo ""
+
+cd $workdir && /bin/bash -c "$cmd"
+EOF
+}
+
+work="/tmp/wwwatch.$$"
+cleanup() {
+    [[ -d "$work" ]] && rm -rf "$work"
+}
+trap cleanup EXIT
+mkdir "$work"
+
+oldpwd="$PWD"
+
+cd "$work" && { 
+    mkdir -p ./www ./www/cgi-bin
+
+    generate_index_htm $INTERVAL > ./www/index.htm
+    generate_update_cgi "$oldpwd" $cmd > ./www/cgi-bin/update.cgi
+    chmod +x ./www/cgi-bin/update.cgi
+
+    cd "./www" && { 
+        echo "Wwwatching on \`http://$(hostname -f):$port\`"
+        python -m CGIHTTPServer "$port" >> ../http.log 2>&1
+    }
+}
+
