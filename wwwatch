@@ -2,10 +2,15 @@
 
 set -o errexit
 
-INTERVAL=1000
+INTERVAL=1
 port=8080
 
 cmd="$@"
+
+debug() {
+    [[ "$DEBUG" == "1" ]] && echo "$@"
+    true
+}
 
 generate_index_htm() {
     local interval="$1"
@@ -18,13 +23,13 @@ cat <<EOF
         <script src="http://code.jquery.com/jquery-1.9.1.min.js"></script>
         <script>
             \$(document).ready(function() {
-                setInterval(update, $interval);
+                setInterval(update, $interval * 1000);
                 update();
             });
 
             function update() {
                 \$.ajax({
-                    url: "./cgi-bin/update.cgi",
+                    url: "./data",
                 }).done(function(data) {
                     var out = \$('#out');
                     out.html(\$('<pre>').text(data));
@@ -42,38 +47,54 @@ cat <<EOF
 EOF
 }
 
-generate_update_cgi() {
-    local workdir="$1"; shift
-    local cmd="$@"
-cat <<EOF
-#!/bin/bash
-
-echo "Content-type: text/plain"
-echo ""
-
-cd $workdir && /bin/bash -c "$cmd"
-EOF
-}
-
 work="/tmp/wwwatch.$$"
 cleanup() {
     [[ -d "$work" ]] && rm -rf "$work"
 }
 trap cleanup EXIT
-mkdir "$work"
+mkdir "$work" "$work/www"
+debug "workdir at: $work"
 
 oldpwd="$PWD"
 
-cd "$work" && { 
-    mkdir -p ./www ./www/cgi-bin
-
-    generate_index_htm $INTERVAL > ./www/index.htm
-    generate_update_cgi "$oldpwd" $cmd > ./www/cgi-bin/update.cgi
-    chmod +x ./www/cgi-bin/update.cgi
-
-    cd "./www" && { 
-        echo "Wwwatching on \`http://$(hostname -f):$port\`"
-        python -m CGIHTTPServer "$port" >> ../http.log 2>&1
-    }
+roll_name() {
+    echo "$1" | sed 's/.\(.\)$/@\1/' | awk -F@ '{print $1 "." ($2 + 1) % 2}'
 }
 
+run_update_loop() {
+    local interval="$1"; shift
+    local workdir="$1"; shift
+    local cmd="$@"
+
+    touch ./data.0 ./data.1
+    ln -sf ./data.0 ./data
+
+    while true; do
+        now=$(date +%s.%3N)
+
+        active=$(readlink ./data)
+        shadow=$(roll_name "$active")
+        debug "active=$active, shadow=$shadow"
+
+        ( cd "$workdir" && eval $cmd ) > "$shadow"
+        ln -sf "$shadow" ./data
+
+        # iterate with fixed intervals
+        # don't ask me how this works, just use normal language
+        sleep $(echo "$interval - $(date +%s.%3N) + $now" | bc | sed 's/^-.*/0/')
+    done
+}
+
+cd "$work/www" && {
+    run_update_loop "$INTERVAL" "$oldpwd" $cmd &
+    update_loop_pid=$!
+    debug "updating data in backgound: $update_loop_pid"
+
+    generate_index_htm "$INTERVAL" > ./index.htm
+
+    echo "Wwwatching on http://$(hostname -f):$port"
+    python -m SimpleHTTPServer "$port" >> ../http.log 2>&1
+
+    [[ ! -n "$update_loop_pid" ]] && kill "$update_loop_pid"
+    join
+}
