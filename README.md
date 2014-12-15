@@ -9,11 +9,14 @@ USAGE
 
 KNOWN BUGS
 ----------
- - `Ctrl-C` may not kill the script from first attempt
+ - `socket.error: [Errno 98] Address already in use` could be thrown if
+   `wwwatch` reinvoked shortly after termination
 
 TODO
 ----
- - option for refresh interval
- - options for host/port/url-prefix
+ - cli option handling refresh-interval/host/port/url-prefix
  - backgorund mode
  - compartibility with `watch(1)`
+ - graceful client-side error handling
+ - "last updated at" banner above output
+ - graceful shutdown

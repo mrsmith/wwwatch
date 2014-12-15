@@ -1,100 +1,187 @@
-#!/bin/bash
+#!/usr/bin/env python2.7
 
-set -o errexit
+from contextlib import contextmanager
+from time import time as now
 
-INTERVAL=1
-port=8080
+import logging as logging
+import multiprocessing as mp
+import subprocess as sp
 
-cmd="$@"
+import SimpleHTTPServer
+import SocketServer
+import os
+import shutil
+import socket
+import sys
+import tempfile
+import time
 
-debug() {
-    [[ "$DEBUG" == "1" ]] && echo "$@"
-    true
-}
+SHELL='/bin/sh'
+PORT = 8000
+LOG_LEVEL = logging.WARN
 
-generate_index_htm() {
-    local interval="$1"
-cat <<EOF
+logging.basicConfig(level=LOG_LEVEL)
+
+def roll_name(active):
+    ''' './data.0' -> './data.1'
+    >>> roll_name('./data.0')
+    './data.1'
+
+    >>> roll_name('./data.1')
+    './data.0'
+    '''
+    base, n = active.rsplit('.', 1)
+    return '%s.%d' % (base, (int(n) + 1) % 2)
+
+# doesn't work on wnidows
+def force_symlink(target, name):
+    os.system('/bin/ln -sf "%s" "%s"' % (target, name))
+
+def run_cmd(workdir, cmd, out):
+    # (cd $workdir && $SHELL -c "$cmd" ) > out
+    p = sp.Popen([SHELL, '-c', cmd], shell=False, stdout=out, stderr=out, cwd=workdir)
+    p.wait()
+    return p.returncode
+
+def sleep_neg(sec):
+    if sec > 0.0:
+        time.sleep(sec)
+
+def update_worker(interval_s, workdir, cmd):
+    log = logging.getLogger('update_worker')
+    log.info('starting in %s', os.getcwd())
+
+    # prepare
+    force_symlink('./data.0', './data')
+
+    # run update loop
+    keep_going = True
+    while keep_going:
+        update_start = now()
+
+        active = os.readlink('./data')
+        shadow = roll_name(active)
+        log.debug('active=%s, shadow=%s' % (active, shadow))
+
+        r = run_cmd(workdir, cmd, open(shadow, 'w'))
+        log.debug('\'%s\' returned %d', cmd, r);
+
+        force_symlink(shadow, './data')
+
+        # try to iterate with regular intervals
+        sleep_neg(interval_s - (now() - update_start))
+
+    # exit
+    log.info('done')
+
+@contextmanager
+def tmpdir():
+    path = os.path.join(tempfile.gettempdir(), 'wwwatch.' + str(os.getpid()))
+    os.mkdir(path, 0700)
+
+    try:
+        yield path
+    finally:
+        try:
+            shutil.rmtree(path)
+        except IOError:
+            sys.stderr.write('failed to clean up temp dir: ' + path)
+
+class HTTPRequestHandler(SimpleHTTPServer.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        self.log = logging.getLogger('HTTPRequestHandler')
+        SimpleHTTPServer.SimpleHTTPRequestHandler.__init__(self, *args, **kwargs)
+
+    def log_message(self, format, *args):
+        self.log.debug("%s - - [%s] %s" %
+                         (self.address_string(),
+                          self.log_date_time_string(),
+                          format%args))
+
+def generate_index_htm(interval_s):
+    update_url = './data'
+
+    template = '''\
 <html>
     <head>
-        <style> * { font-family: monospace; } </style>
+        <style> * {{ font-family: monospace; }} </style>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
         <title>Refresh like mad</title>
         <script src="http://code.jquery.com/jquery-1.9.1.min.js"></script>
         <script>
-            \$(document).ready(function() {
-                setInterval(update, $interval * 1000);
+            $(document).ready(function() {{
+                setInterval(update, ({interval_s}) * 1000);
                 update();
-            });
+            }});
 
-            function update() {
-                \$.ajax({
-                    url: "./data",
-                }).done(function(data) {
-                    var out = \$('#out');
-                    out.html(\$('<pre>').text(data));
-                }).error(function(a,b,c) {
-                    var out = \$('#out');
+            function update() {{
+                $.ajax({{
+                    url: "{update_url}",
+                }}).done(function(data) {{
+                    var out = $('#out');
+                    out.html($('<pre>').text(data));
+                }}).error(function(a,b,c) {{
+                    var out = $('#out');
                     out.text("error getting update: " + b + ", " + c);
-                });
-            }
+                }});
+            }}
         </script>
     </head>
     <body>
         <div id="out"/>
     </body>
 </html>
-EOF
-}
+'''
 
-work="/tmp/wwwatch.$$"
-cleanup() {
-    [[ -d "$work" ]] && rm -rf "$work"
-}
-trap cleanup EXIT
-mkdir "$work" "$work/www"
-debug "workdir at: $work"
+    with open('./index.htm', 'w') as out:
+        out.write(template.format(**locals()))
 
-oldpwd="$PWD"
+def main():
+    log = logging.getLogger('main')
 
-roll_name() {
-    echo "$1" | sed 's/.\(.\)$/@\1/' | awk -F@ '{print $1 "." ($2 + 1) % 2}'
-}
+    interval_s = 1
+    cmd = ' '.join(sys.argv[1:])
+    oldcwd = os.getcwd()
+    log.info('main(interval=%g, cwd=%s, cmd=%s)', interval_s, oldcwd, cmd)
 
-run_update_loop() {
-    local interval="$1"; shift
-    local workdir="$1"; shift
-    local cmd="$@"
+    # prepare workdir
+    with tmpdir() as workdir:
+        os.chdir(workdir)
+        log.info('workdir at %s', workdir)
 
-    touch ./data.0 ./data.1
-    ln -sf ./data.0 ./data
+        updater = mp.Process(target=update_worker, args=(interval_s, oldcwd, cmd))
+        httpd = SocketServer.TCPServer(("", PORT), HTTPRequestHandler)
 
-    while true; do
-        now=$(date +%s.%3N)
+        try:
+            # run background updater
+            updater.start()
 
-        active=$(readlink ./data)
-        shadow=$(roll_name "$active")
-        debug "active=$active, shadow=$shadow"
+            # generate index.htm
+            generate_index_htm(interval_s)
 
-        ( cd "$workdir" && eval $cmd ) > "$shadow"
-        ln -sf "$shadow" ./data
+            hostname = sp.check_output('/bin/hostname -f'.split()).strip()
+            print 'wwwatching on http://%s:%s' % (hostname, PORT)
 
-        # iterate with fixed intervals
-        # don't ask me how this works, just use normal language
-        sleep $(echo "$interval - $(date +%s.%3N) + $now" | bc | sed 's/^-.*/0/')
-    done
-}
+            # run webserver in foreground
+            keep_going = True
+            while keep_going:
+                httpd.handle_request()
 
-cd "$work/www" && {
-    run_update_loop "$INTERVAL" "$oldpwd" $cmd &
-    update_loop_pid=$!
-    debug "updating data in backgound: $update_loop_pid"
+        finally:
+            # XXX not sure if this does anything
+            httpd.close()
 
-    generate_index_htm "$INTERVAL" > ./index.htm
+            updater.terminate()
+            updater.join()
 
-    echo "Wwwatching on http://$(hostname -f):$port"
-    python -m SimpleHTTPServer "$port" >> ../http.log 2>&1
+    log.info('done')
 
-    [[ -n "$update_loop_pid" ]] && kill "$update_loop_pid"
-    join
-}
+def selftest():
+    import doctest
+    doctest.testmod()
+
+if __name__ == '__main__':
+    if len(sys.argv) > 1 and sys.argv[1] == '--test':
+        selftest()
+    else:
+        main()
