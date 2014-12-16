@@ -181,4 +181,9 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == '--test':
         selftest()
     else:
-        main()
+        try:
+            main()
+
+        except KeyboardInterrupt:
+            # keep calm and exiting
+            pass

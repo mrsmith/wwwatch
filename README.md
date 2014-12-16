@@ -14,4 +14,3 @@ TODO
  - compartibility with `watch(1)`
  - graceful client-side error handling
  - "last updated at" banner above output
- - graceful shutdown
