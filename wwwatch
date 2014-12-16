@@ -6,8 +6,8 @@ from time import time as now
 import multiprocessing as mp
 import subprocess as sp
 
+import BaseHTTPServer
 import SimpleHTTPServer
-import SocketServer
 import logging
 import os
 import shutil
@@ -150,7 +150,7 @@ def main():
         log.info('workdir at %s', workdir)
 
         updater = mp.Process(target=update_worker, args=(interval_s, oldcwd, cmd))
-        httpd = SocketServer.TCPServer(("", PORT), HTTPRequestHandler)
+        httpd = BaseHTTPServer.HTTPServer(('', PORT), HTTPRequestHandler)
 
         try:
             # run background updater
@@ -168,9 +168,6 @@ def main():
                 httpd.handle_request()
 
         finally:
-            # XXX not sure if this does anything
-            httpd.close()
-
             updater.terminate()
             updater.join()
 
