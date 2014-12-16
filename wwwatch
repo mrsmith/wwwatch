@@ -95,6 +95,6 @@ cd "$work/www" && {
     echo "Wwwatching on http://$(hostname -f):$port"
     python -m SimpleHTTPServer "$port" >> ../http.log 2>&1
 
-    [[ ! -n "$update_loop_pid" ]] && kill "$update_loop_pid"
+    [[ -n "$update_loop_pid" ]] && kill "$update_loop_pid"
     join
 }
