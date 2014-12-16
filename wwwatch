@@ -3,12 +3,12 @@
 from contextlib import contextmanager
 from time import time as now
 
-import logging as logging
 import multiprocessing as mp
 import subprocess as sp
 
 import SimpleHTTPServer
 import SocketServer
+import logging
 import os
 import shutil
 import socket
