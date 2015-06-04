@@ -17,7 +17,7 @@ import tempfile
 import time
 
 SHELL='/bin/sh'
-PORT = 8000
+PORT = 8999
 LOG_LEVEL = logging.WARN
 
 logging.basicConfig(level=LOG_LEVEL)
@@ -142,7 +142,7 @@ def hostname():
 def main():
     log = logging.getLogger('main')
 
-    interval_s = 1
+    interval_s = 30
     cmd = ' '.join(sys.argv[1:])
     oldcwd = os.getcwd()
     log.info('main(interval=%g, cwd=%s, cmd=%s)', interval_s, oldcwd, cmd)
