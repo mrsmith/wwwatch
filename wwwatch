@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 from time import time as now
+from signal import signal, SIGTERM
 
 import multiprocessing as mp
 import subprocess as sp
@@ -139,8 +140,12 @@ def generate_index_htm(interval_s):
 def hostname():
     return sp.check_output('/bin/hostname -f'.split()).strip()
 
+def signal_handler(sig, frame):
+    sys.exit(0)
+
 def main():
     log = logging.getLogger('main')
+    signal(SIGTERM, signal_handler)
 
     interval_s = 30
     cmd = ' '.join(sys.argv[1:])
@@ -153,6 +158,7 @@ def main():
         log.info('workdir at %s', workdir)
 
         updater = mp.Process(target=update_worker, args=(interval_s, oldcwd, cmd))
+        log.info('starting httpd')
         httpd = BaseHTTPServer.HTTPServer(('', PORT), HTTPRequestHandler)
 
         try:
@@ -170,6 +176,7 @@ def main():
                 httpd.handle_request()
 
         finally:
+            log.info('shutting down updater')
             updater.terminate()
             updater.join()
 

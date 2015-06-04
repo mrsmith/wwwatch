@@ -1,14 +1,14 @@
 #!/bin/bash
 
-set -o errexit
-
 ./wwwatch echo "Hello world" &
 pid="$!"
+
+sleep 1
 
 out=$(curl -Ss http://localhost:8999)
 kill "$pid"
 
-wait $pid 2>/dev/null || true
+wait 2>/dev/null
 
 if [[ -n "$out" ]]; then
     echo "PASSED"
