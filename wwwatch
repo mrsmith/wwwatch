@@ -23,23 +23,8 @@ LOG_LEVEL = logging.WARN
 
 logging.basicConfig(level=LOG_LEVEL)
 
-def roll_name(active):
-    ''' './data.0' -> './data.1'
-    >>> roll_name('./data.0')
-    './data.1'
-
-    >>> roll_name('./data.1')
-    './data.0'
-    '''
-    base, n = active.rsplit('.', 1)
-    return '%s.%d' % (base, (int(n) + 1) % 2)
-
-# doesn't work on wnidows
-def force_symlink(target, name):
-    os.system('/bin/ln -sf "%s" "%s"' % (target, name))
-
 def run_cmd(workdir, cmd, out):
-    # (cd $workdir && $SHELL -c "$cmd" ) > out
+    # (cd $workdir && $SHELL -c "$cmd") &> out
     p = sp.Popen([SHELL, '-c', cmd], shell=False, stdout=out, stderr=out, cwd=workdir)
     p.wait()
     return p.returncode
@@ -50,24 +35,21 @@ def sleep_neg(sec):
 
 def update_worker(interval_s, workdir, cmd):
     log = logging.getLogger('update_worker')
-    log.info('starting in %s', os.getcwd())
-
-    # prepare
-    force_symlink('./data.0', './data')
+    log.info('starting in %s, pid %d', os.getcwd(), os.getpid())
 
     # run update loop
     keep_going = True
     while keep_going:
         update_start = now()
 
-        active = os.readlink('./data')
-        shadow = roll_name(active)
-        log.debug('active=%s, shadow=%s' % (active, shadow))
+        active = './data'
+        shadow = active + '.tmp'
 
-        r = run_cmd(workdir, cmd, open(shadow, 'w'))
+        with open(shadow, 'w') as out:
+            r = run_cmd(workdir, cmd, out)
         log.debug('\'%s\' returned %d', cmd, r);
 
-        force_symlink(shadow, './data')
+        os.rename(shadow, active)
 
         # try to iterate with regular intervals
         sleep_neg(interval_s - (now() - update_start))
@@ -147,7 +129,7 @@ def main():
     log = logging.getLogger('main')
     signal(SIGTERM, signal_handler)
 
-    interval_s = 30
+    interval_s = 1
     cmd = ' '.join(sys.argv[1:])
     oldcwd = os.getcwd()
     log.info('main(interval=%g, cwd=%s, cmd=%s)', interval_s, oldcwd, cmd)
@@ -182,17 +164,10 @@ def main():
 
     log.info('done')
 
-def selftest():
-    import doctest
-    doctest.testmod()
-
 if __name__ == '__main__':
-    if len(sys.argv) > 1 and sys.argv[1] == '--test':
-        selftest()
-    else:
-        try:
-            main()
+    try:
+        main()
 
-        except KeyboardInterrupt:
-            # keep calm and exiting
-            pass
+    except KeyboardInterrupt:
+        # keep calm and exiting
+        pass
