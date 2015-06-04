@@ -9,9 +9,6 @@ USAGE
 
 TODO
 ----
- - cli option handling refresh-interval/host/port/url-prefix
- - backgorund mode
- - compartibility with `watch(1)`
  - add client-side error handling
  - add "last updated at" banner above output
  - avoid loading jqery from internet
