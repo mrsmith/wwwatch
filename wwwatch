@@ -136,6 +136,9 @@ def generate_index_htm(interval_s):
     with open('./index.htm', 'w') as out:
         out.write(template.format(**locals()))
 
+def hostname():
+    return sp.check_output('/bin/hostname -f'.split()).strip()
+
 def main():
     log = logging.getLogger('main')
 
@@ -159,8 +162,7 @@ def main():
             # generate index.htm
             generate_index_htm(interval_s)
 
-            hostname = sp.check_output('/bin/hostname -f'.split()).strip()
-            print 'wwwatching on http://%s:%s' % (hostname, PORT)
+            print 'wwwatching on http://%s:%d' % (hostname(), port)
 
             # run webserver in foreground
             keep_going = True
